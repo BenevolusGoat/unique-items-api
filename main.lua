@@ -1,4 +1,4 @@
---VERSION 1.2
+--VERSION 1.2.1
 
 ---@class ModReference
 UniqueItemsAPI = RegisterMod("Unique Items API", 1)

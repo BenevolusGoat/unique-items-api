@@ -3,8 +3,10 @@
 
 local game = Game()
 local SaveManager = {}
-SaveManager.VERSION = 2.14
+SaveManager.VERSION = 2.15
 SaveManager.Utility = {}
+
+SaveManager.Debug = false
 
 -- Used in the DEFAULT_SAVE table as a key with the value being the default save data for a player in this save type.
 
@@ -20,7 +22,7 @@ SaveManager.DefaultSaveKeys = {
 local modReference
 local json = require("json")
 local loadedData = false
-local dontSaveModData = false
+local dontSaveModData = true
 local skipFloorReset = false
 local skipRoomReset = false
 local shouldRestoreOnUse = true
@@ -131,15 +133,8 @@ SaveManager.DEFAULT_SAVE = {
 	}
 }
 
---[[
-    ###########################
-    #  UTILITY METHODS START  #
-    ###########################
-]]
-
 --#region utility methods
 
-SaveManager.Debug = false
 
 function SaveManager.Utility.SendError(msg)
 	local _, traceback = pcall(error, "", 5) -- 5 because it is 5 layers deep
@@ -417,14 +412,14 @@ end
 ---@param ignoreWarning? boolean
 function SaveManager.Utility.IsDataInitialized(ignoreWarning)
 	if not modReference then
-		if ignoreWarning then
+		if not ignoreWarning then
 			SaveManager.Utility.SendError(SaveManager.Utility.ErrorMessages.NOT_INITIALIZED)
 		end
 		return false
 	end
 
 	if not loadedData then
-		if ignoreWarning then
+		if not ignoreWarning then
 			SaveManager.Utility.SendError(SaveManager.Utility.ErrorMessages.DATA_NOT_LOADED)
 		end
 		return false
@@ -434,12 +429,6 @@ function SaveManager.Utility.IsDataInitialized(ignoreWarning)
 end
 
 --#endregion
-
---[[
-    ################################
-    #  DEFAULT DATA METHODS START  #
-    ################################
-]]
 
 --#region default data
 
@@ -501,12 +490,6 @@ function SaveManager.Utility.AddDefaultRoomData(dataType, data, noHourglass)
 end
 
 --#endregion
-
---[[
-    ########################
-    #  CORE METHODS START  #
-    ########################
-]]
 
 --#region core methods
 
@@ -607,9 +590,8 @@ function SaveManager.Load(isLuamod)
 	end
 
 	if game:GetFrameCount() > 0 then
-		currentListIndex = saveData.__SAVEMANAGER_LIST_INDEX
+		currentListIndex = saveData.__SAVEMANAGER_LIST_INDEX or game:GetLevel():GetCurrentRoomDesc().ListIndex
 		saveData.__SAVEMANAGER_LIST_INDEX = nil
-		saveData.__SAVEMANAGER_STAGE = nil
 	end
 
 	dataCache = saveData
@@ -626,15 +608,9 @@ function SaveManager.Load(isLuamod)
 	SaveManager.Utility.RunCallback(SaveManager.Utility.CustomCallback.POST_DATA_LOAD, saveData, isLuamod)
 end
 
---[[
-    ##########################
-    #  PICKUP METHODS START  #
-    ##########################
-]]
-
 local function getListIndex()
 	--Myosotis for checking last floor's ListIndex or for checking the pre-saved ListIndex on continue
-	if checkLastIndex or Isaac.GetPlayer().FrameCount == 0 then
+	if checkLastIndex or (Isaac.GetPlayer() and Isaac.GetPlayer().FrameCount == 0) then
 		return tostring(currentListIndex)
 	else
 		return tostring(game:GetLevel():GetCurrentRoomDesc().ListIndex)
@@ -813,12 +789,6 @@ end
 
 --#endregion
 
---[[
-    ##########################
-    #  CORE CALLBACKS START  #
-    ##########################
-]]
-
 --#region core callbacks
 
 local function onGameLoad()
@@ -827,6 +797,7 @@ local function onGameLoad()
 	SaveManager.Load(false)
 	loadedData = true
 	inRunButNotLoaded = false
+	dontSaveModData = false
 end
 
 ---@param ent? Entity
@@ -834,6 +805,7 @@ local function onEntityInit(_, ent)
 	local newGame = game:GetFrameCount() == 0 and not ent
 	local saveIndex = SaveManager.Utility.GetSaveIndex(ent)
 	checkLastIndex = false
+
 	if not loadedData or inRunButNotLoaded then
 		SaveManager.Utility.SendDebugMessage("Game Init")
 		onGameLoad()
@@ -950,16 +922,16 @@ local function detectLuamod()
 		and (REPENTOGON and (not dontSaveModData and Isaac.GetFrameCount() > 0 and Console.GetHistory()[2] == "Success!")
 			or game:GetFrameCount() > 0)
 	then
-		SaveManager.Load(true)
-		inRunButNotLoaded = false
-		shouldRestoreOnUse = true
 		if game:GetFrameCount() > 0 then
 			currentListIndex = game:GetLevel():GetCurrentRoomDesc().ListIndex
 		end
+		SaveManager.Load(true)
+		inRunButNotLoaded = false
+		shouldRestoreOnUse = true
 	end
 end
 
----@param saveType "floor" | "roomFloor" | "room"
+---@param saveType string
 local function resetData(saveType)
 	if (not skipRoomReset and saveType == "room") or (not skipFloorReset and (saveType == "roomFloor" or saveType == "floor")) then
 		local transferBossAscentData = {}
@@ -1020,9 +992,11 @@ local function preGameExit(_, shouldSave)
 	SaveManager.Utility.SendDebugMessage("pre game exit")
 
 	if shouldSave then
-		for _, pickup in pairs(Isaac.FindByType(EntityType.ENTITY_PICKUP)) do
-			---@cast pickup EntityPickup
-			storePickupData(pickup)
+		for _, pickup in ipairs(Isaac.FindByType(EntityType.ENTITY_PICKUP)) do
+			if type(pickup) ~= "number" then
+				---@cast pickup EntityPickup
+				storePickupData(pickup)
+			end
 		end
 	else
 		dataCache.game = SaveManager.Utility.PatchSaveFile({}, SaveManager.DEFAULT_SAVE.game)
@@ -1032,6 +1006,7 @@ local function preGameExit(_, shouldSave)
 	SaveManager.Save()
 	inRunButNotLoaded = false
 	shouldRestoreOnUse = false
+	dontSaveModData = true
 	saveFileWait = 0
 end
 
@@ -1100,9 +1075,11 @@ local function removeLeftoverEntityData()
 			local entType = nameToType[entName]
 			SaveManager.Utility.SendDebugMessage("Searching for leftover data under", entName)
 			if entType then
-				for _, ent in pairs(Isaac.FindByType(entType)) do
-					local index = SaveManager.Utility.GetSaveIndex(ent)
-					if key == index then goto continue end --Found entity, no need to remove
+				for _, ent in ipairs(Isaac.FindByType(entType)) do
+					if type(ent) ~= "number" then
+						local index = SaveManager.Utility.GetSaveIndex(ent)
+						if key == index then goto continue end --Found entity, no need to remove
+					end
 				end
 			end
 			SaveManager.Utility.SendDebugMessage("Leftover data removed for", key)
@@ -1141,8 +1118,8 @@ local function postUpdate()
 end
 
 local function postSlotInitNoRGON()
-	for _, slot in pairs(Isaac.FindByType(EntityType.ENTITY_SLOT)) do
-		if slot.FrameCount <= 1 then
+	for _, slot in ipairs(Isaac.FindByType(EntityType.ENTITY_SLOT)) do
+		if type(slot) ~= "number" and slot.FrameCount <= 1 then
 			onEntityInit(_, slot)
 		end
 	end
@@ -1162,12 +1139,6 @@ local function postSaveSlotLoad(_, _, isSlotSelected, _)
 end
 
 --#endregion
-
---[[
-    ##########################
-    #  INITIALIZATION LOGIC  #
-    ##########################
-]]
 
 --#region init logic
 
@@ -1215,12 +1186,37 @@ function SaveManager.Init(mod)
 			postSlotInitNoRGON)
 	end
 
-	--load luamod as early as possible.
-	modReference:AddPriorityCallback(ModCallbacks.MC_INPUT_ACTION, SaveManager.Utility.CallbackPriority.IMPORTANT,
-		function()
+	if REPENTOGON then
+		local function tryDetectLuamod()
 			dontSaveModData = false
 			detectLuamod()
-		end)
+			if loadedData then
+				Isaac.RemoveCallback(modReference, ModCallbacks.MC_INPUT_ACTION, tryDetectLuamod)
+			end
+		end
+		--load luamod as early as possible.
+		modReference:AddPriorityCallback(ModCallbacks.MC_INPUT_ACTION, SaveManager.Utility.CallbackPriority.IMPORTANT,
+			tryDetectLuamod)
+	else
+		local function pleaseEndMe()
+			dontSaveModData = false
+			detectLuamod()
+			if loadedData then
+				Isaac.RemoveCallback(modReference, ModCallbacks.MC_POST_NPC_RENDER, pleaseEndMe)
+				Isaac.RemoveCallback(modReference, ModCallbacks.MC_POST_EFFECT_RENDER, pleaseEndMe)
+				Isaac.RemoveCallback(modReference, ModCallbacks.MC_POST_PICKUP_RENDER, pleaseEndMe)
+				Isaac.RemoveCallback(modReference, ModCallbacks.MC_POST_PLAYER_RENDER, pleaseEndMe)
+			end
+		end
+		modReference:AddPriorityCallback(ModCallbacks.MC_POST_NPC_RENDER, SaveManager.Utility.CallbackPriority.IMPORTANT,
+			pleaseEndMe)
+		modReference:AddPriorityCallback(ModCallbacks.MC_POST_EFFECT_RENDER,
+			SaveManager.Utility.CallbackPriority.IMPORTANT, pleaseEndMe)
+		modReference:AddPriorityCallback(ModCallbacks.MC_POST_PICKUP_RENDER,
+			SaveManager.Utility.CallbackPriority.IMPORTANT, pleaseEndMe)
+		modReference:AddPriorityCallback(ModCallbacks.MC_POST_PLAYER_RENDER,
+			SaveManager.Utility.CallbackPriority.IMPORTANT, pleaseEndMe)
+	end
 
 	modReference:AddPriorityCallback(ModCallbacks.MC_POST_NEW_ROOM, SaveManager.Utility.CallbackPriority.EARLY,
 		postNewRoom)
@@ -1242,6 +1238,12 @@ function SaveManager.Init(mod)
 		end,
 		CollectibleType.COLLECTIBLE_MOVING_BOX)
 
+	modReference:AddPriorityCallback(ModCallbacks.MC_USE_ITEM, SaveManager.Utility.CallbackPriority.LATE,
+		function()
+			SaveManager.Save()
+		end,
+		CollectibleType.COLLECTIBLE_GENESIS)
+
 	-- used to detect if an unloaded mod is this mod for when saving for luamod
 	modReference.__SAVEMANAGER_UNIQUE_KEY = ("%s-%s"):format(Random(), Random())
 	modReference:AddPriorityCallback(ModCallbacks.MC_PRE_MOD_UNLOAD, SaveManager.Utility.CallbackPriority.EARLY,
@@ -1257,12 +1259,6 @@ function SaveManager.Init(mod)
 end
 
 --#endregion
-
---[[
-    ########################
-    #  SAVE METHODS START  #
-    ########################
-]]
 
 --#region save methods
 
