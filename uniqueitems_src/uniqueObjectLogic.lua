@@ -3,7 +3,8 @@
 local entTypeToItemType = {
 	[EntityType.ENTITY_PICKUP] = UniqueItemsAPI.ObjectType.COLLECTIBLE,
 	[EntityType.ENTITY_FAMILIAR] = UniqueItemsAPI.ObjectType.FAMILIAR,
-	[EntityType.ENTITY_KNIFE] = UniqueItemsAPI.ObjectType.KNIFE
+	[EntityType.ENTITY_KNIFE] = UniqueItemsAPI.ObjectType.KNIFE,
+	[EntityType.ENTITY_EFFECT] = UniqueItemsAPI.ObjectType.EFFECT
 }
 
 local function hideExtraKnife(ent)
@@ -49,6 +50,10 @@ local function tryResetObjectSprite(ent, useAnm2)
 		if isOverlayPlaying then
 			sprite:Continue()
 		end
+		if ent:ToPickup() then
+			sprite:ReplaceSpritesheet(1, UniqueItemsAPI.ItemConfig:GetCollectible(ent.SubType).GfxFileName)
+			sprite:LoadGraphics()
+		end
 	end
 	if not useAnm2 then
 		data.UniqueItemsAPISprite = nil
@@ -78,7 +83,6 @@ function UniqueItemsAPI:OnObjectInit(ent)
 	if not params then return end
 	local sprite = ent:GetSprite()
 	local originalAnm2 = sprite:GetFilename()
-
 	if params.Anm2 then
 		tryResetObjectSprite(ent, params.Anm2)
 	end
@@ -100,7 +104,15 @@ end
 
 UniqueItemsAPI:AddCallback(ModCallbacks.MC_POST_PICKUP_INIT, UniqueItemsAPI.OnObjectInit,
 	PickupVariant.PICKUP_COLLECTIBLE)
-UniqueItemsAPI:AddCallback(ModCallbacks.MC_FAMILIAR_INIT, UniqueItemsAPI.OnObjectInit)
+
+UniqueItemsAPI:AddCallback(UniqueItemsAPI.Callbacks.POST_LOAD_UNIQUE_ITEMS, function()
+	for familiarVariant, _ in pairs(UniqueItemsAPI.ObjectData.Familiars) do
+		UniqueItemsAPI:AddCallback(ModCallbacks.MC_FAMILIAR_INIT, UniqueItemsAPI.OnObjectInit, familiarVariant)
+	end
+	for effectVariant, _ in pairs(UniqueItemsAPI.ObjectData.Effects) do
+		UniqueItemsAPI:AddCallback(ModCallbacks.MC_POST_EFFECT_INIT, UniqueItemsAPI.OnObjectInit, effectVariant)
+	end
+end)
 UniqueItemsAPI:AddCallback(ModCallbacks.MC_POST_KNIFE_INIT, UniqueItemsAPI.OnObjectInit)
 
 ---@param ent Entity
@@ -110,9 +122,9 @@ function UniqueItemsAPI:UpdateObjectSprite(ent)
 		if level:GetCurses() == LevelCurse.CURSE_OF_BLIND or ent.SubType == CollectibleType.COLLECTIBLE_NULL then return end
 	end
 
-	local player = ent.Type == EntityType.ENTITY_PICKUP and UniqueItemsAPI.GetFirstAlivePlayer() or
-		UniqueItemsAPI.TryGetPlayer(ent)
+	local player = UniqueItemsAPI.TryGetPlayer(ent)
 	if not player then return end
+
 	local playerType = player:GetPlayerType()
 	local data = ent:GetData()
 	local objectID = ent.Type == EntityType.ENTITY_PICKUP and ent.SubType or ent.Variant
@@ -141,7 +153,15 @@ end
 
 UniqueItemsAPI:AddCallback(ModCallbacks.MC_POST_PICKUP_UPDATE, UniqueItemsAPI.UpdateObjectSprite,
 	PickupVariant.PICKUP_COLLECTIBLE)
-UniqueItemsAPI:AddCallback(ModCallbacks.MC_FAMILIAR_UPDATE, UniqueItemsAPI.UpdateObjectSprite)
+
+UniqueItemsAPI:AddCallback(UniqueItemsAPI.Callbacks.POST_LOAD_UNIQUE_ITEMS, function()
+	for familiarVariant, _ in pairs(UniqueItemsAPI.ObjectData.Familiars) do
+		UniqueItemsAPI:AddCallback(ModCallbacks.MC_FAMILIAR_UPDATE, UniqueItemsAPI.UpdateObjectSprite, familiarVariant)
+	end
+	for effectVariant, _ in pairs(UniqueItemsAPI.ObjectData.Effects) do
+		UniqueItemsAPI:AddCallback(ModCallbacks.MC_POST_EFFECT_UPDATE, UniqueItemsAPI.UpdateObjectSprite, effectVariant)
+	end
+end)
 UniqueItemsAPI:AddCallback(ModCallbacks.MC_POST_KNIFE_UPDATE, UniqueItemsAPI.UpdateObjectSprite)
 
 --#endregion

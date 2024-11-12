@@ -1,4 +1,4 @@
---VERSION 1.2.1
+--VERSION 1.3
 
 ---@class ModReference
 UniqueItemsAPI = RegisterMod("Unique Items API", 1)
@@ -171,6 +171,7 @@ function UniqueItemsAPI:OnPostDataLoad(saveData)
 
 		::continue::
 	end
+	Isaac.RunCallback(UniqueItemsAPI.Callbacks.POST_LOAD_UNIQUE_ITEMS)
 end
 
 saveManager.AddCallback(saveManager.Utility.CustomCallback.POST_DATA_LOAD, UniqueItemsAPI.OnPostDataLoad)

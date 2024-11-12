@@ -5,7 +5,8 @@ local modName = UniqueItemsAPI.Name
 local displayPlayers = {
 	Collectibles = {},
 	Familiars = {},
-	Knives = {}
+	Knives = {},
+	Effects = {}
 }
 
 ---@param noItems boolean
@@ -62,10 +63,26 @@ function mcm:GenerateModConfigMenu(noItems)
 		"Randomizes settings on what mod is used for every character with every item, if more than one mod is available for that character."
 	})
 
-	for i = 1, 3 do
-		local tableName = i == 1 and "Collectibles" or i == 2 and "Familiars" or "Knives"
-		local objectTable = UniqueItemsAPI.ObjectData[tableName]
+	for tableName, objectTable in pairs(UniqueItemsAPI.ObjectData) do
 		local subcategoryName = tableName
+
+		local canCreate = false
+
+		for _, objectData in pairs(objectTable) do
+			for _, playerData in pairs(objectData.AllPlayers) do
+				for _, modData in pairs(playerData.ModData) do
+					if not modData.LinkedUniqueObject then
+						canCreate = true
+						break
+					end
+					if canCreate then break end
+				end
+				if canCreate then break end
+			end
+			if canCreate then break end
+		end
+
+		if not canCreate then goto continue end
 
 		if next(objectTable) then
 			ModConfigMenu.UpdateSubcategory(modName, subcategoryName, {
@@ -160,10 +177,16 @@ function mcm:GenerateModConfigMenu(noItems)
 
 			local function getMinOrMaxSetting(max)
 				local currentModData = objectData.AllPlayers[playerNames[objectData.SelectedPlayerIndex]].ModData
+				local numLinkedObjects = 0
+				for _, objectModData in pairs(currentModData) do
+					if objectModData.LinkedUniqueObject then
+						numLinkedObjects = numLinkedObjects + 1
+					end
+				end
 				if max then
-					return #currentModData
+					return (#currentModData - numLinkedObjects)
 				else
-					return #currentModData > 1 and -1 or 0
+					return (#currentModData - numLinkedObjects) > 1 and -1 or 0
 				end
 			end
 
@@ -202,6 +225,18 @@ function mcm:GenerateModConfigMenu(noItems)
 				end,
 				OnChange = function(currentNum)
 					local playerData = objectData.AllPlayers[playerNames[objectData.SelectedPlayerIndex]]
+					while playerData.ModData[currentNum] and playerData.ModData[currentNum].LinkedUniqueObject do
+						--We don't want "Linked" objects to be selectable. Skip over it until you find a new valid option.
+						--There should be at least one available since this tab can't be created otherwise
+						local min, max = getMinOrMaxSetting(false), getMinOrMaxSetting(true)
+						local direction = Input.IsActionTriggered(ButtonAction.ACTION_LEFT, Isaac.GetPlayer().ControllerIndex) and -1 or 1
+						currentNum = currentNum + direction
+						if currentNum < min then
+							currentNum = max
+						elseif currentNum > max then
+							currentNum = min
+						end
+					end
 					playerData.SelectedModIndex = currentNum
 					local currentOption = ModConfigMenu.MenuData[categoryID].Subcategories
 					[ModConfigMenu.GetSubcategoryIDByName(categoryID, subcategoryName)].Options[optionID]
@@ -213,6 +248,7 @@ function mcm:GenerateModConfigMenu(noItems)
 			lastOptionID = optionID + 1
 			ModConfigMenu.AddSpace(modName, subcategoryName)
 		end
+	    ::continue::
 	end
 end
 
