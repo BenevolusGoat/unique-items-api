@@ -41,14 +41,14 @@ local function tryResetObjectSprite(ent, useAnm2)
 		sprite:SetFrame(animToPlay, frame)
 
 		if isPlaying then
-			sprite:Continue()
+			sprite:Play(animToPlay)
 		end
 
 		if overlayToPlay then
 			sprite:SetOverlayFrame(overlayToPlay, overlayFrame)
 		end
 		if isOverlayPlaying then
-			sprite:Continue()
+			sprite:Play(animToPlay)
 		end
 		if ent:ToPickup() then
 			sprite:ReplaceSpritesheet(1, UniqueItemsAPI.ItemConfig:GetCollectible(ent.SubType).GfxFileName)

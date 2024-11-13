@@ -629,6 +629,7 @@ function UniqueItemsAPI.GetObjectParams(objectID, playerOrPlayerType, objectType
 				return
 			else
 				modData = playerData.ModData[index]
+				break
 			end
 		end
 	end
@@ -682,7 +683,7 @@ end
 
 ---@param playerData UniqueObjectPlayerData
 function UniqueItemsAPI.IsObjectRandomized(playerData)
-	return playerData.SelectedModIndex == -1 or UniqueItemsAPI.RandomizeAll
+	return (playerData.SelectedModIndex == -1 or UniqueItemsAPI.RandomizeAll) and #playerData.ModData > 1
 end
 
 --#endregion
