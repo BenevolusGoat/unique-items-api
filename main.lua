@@ -11,7 +11,7 @@ UniqueItemsAPI.ItemConfig = Isaac.GetItemConfig()
 include("uniqueitems_src.uniqueItemsAPI")
 include("uniqueitems_src.uniqueObjectLogic")
 local mcm = include("uniqueitems_src.modConfigMenu")
-UniqueItemsAPI.Version = "1.2"
+UniqueItemsAPI.Version = "1.3"
 
 function UniqueItemsAPI:OnPostGameStarted()
 	local noItems = true
