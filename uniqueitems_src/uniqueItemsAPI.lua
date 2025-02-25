@@ -18,14 +18,14 @@ local nameMap = require("uniqueitems_src.nameMap")
 ---@class UniqueObjectModData
 ---@field PlayerType PlayerType
 ---@field ObjectID integer
----@field ModName string
----@field Anm2 string
 ---@field SpritePath string[]
----@field DisableByDefault boolean
+---@field ModName string
+---@field Anm2 string | nil
+---@field DisableByDefault boolean | nil
 ---@field CostumeSpritePath string | nil
 ---@field NullCostume NullItemID | nil
 ---@field SwordProjectile {Beam: string, Splash: string} | nil
----@field GlobalMod boolean
+---@field GlobalMod boolean | nil
 ---@field LinkedUniqueObject {ObjectType: UniqueObjectType, ObjectID: integer} | nil
 
 ---@class UniqueObjectParams: UniqueObjectModData
@@ -204,7 +204,7 @@ function UniqueItemsAPI.TryGetPlayer(ent)
 	if ent.Type == EntityType.ENTITY_PICKUP then
 		return UniqueItemsAPI.GetFirstAlivePlayer()
 	end
-	
+
 	if string.find(getmetatable(ent).__type, "EntityPtr") then
 		if ent.Ref then
 			return UniqueItemsAPI.TryGetPlayer(ent.Ref)
@@ -487,7 +487,7 @@ function UniqueItemsAPI.AssignUniqueObject(params, objectType)
 			ObjectData = objectData
 		}
 	end
-	
+
 	if not params.PlayerType and params.GlobalMod then
 		for playerType, _ in pairs(UniqueItemsAPI.RegisteredCharacters) do
 			params.PlayerType = playerType
@@ -495,7 +495,7 @@ function UniqueItemsAPI.AssignUniqueObject(params, objectType)
 		end
 		return
 	end
-	
+
 	---@type UniqueObjectData
 	local objectData = UniqueItemsAPI.ObjectData[uniqueItemTable][params.ObjectID]
 	local shouldAdd = true
@@ -527,7 +527,7 @@ function UniqueItemsAPI.AssignUniqueObject(params, objectType)
 	end
 	local playerData = UniqueItemsAPI.GetObjectData(params.ObjectID, objectType, params.PlayerType)
 	---@cast playerData UniqueObjectPlayerData
-	
+
 	local modData = {
 		ModName = lastRegisteredMod
 	}
@@ -852,7 +852,7 @@ end
 ---@param noModifier? boolean
 ---@return UniqueObjectParams | nil
 function UniqueItemsAPI.GetFamiliarParams(familiarVariant, familiar, noModifier)
-	local params = UniqueItemsAPI.GetObjectParams(familiarVariant, familiar, 
+	local params = UniqueItemsAPI.GetObjectParams(familiarVariant, familiar,
 	UniqueItemsAPI.ObjectType.FAMILIAR, noModifier)
 	---@cast params OldObjectParams
 	if params then
