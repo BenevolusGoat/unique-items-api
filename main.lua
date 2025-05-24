@@ -1,9 +1,8 @@
---VERSION 1.2.1
-
 ---@class ModReference
 UniqueItemsAPI = RegisterMod("Unique Items API", 1)
 UniqueItemsAPI.SaveManager = include("uniqueitems_src.save_manager")
 local saveManager = UniqueItemsAPI.SaveManager
+saveManager.AutoCreateRoomSaves = false
 saveManager.Init(UniqueItemsAPI)
 UniqueItemsAPI.Game = Game()
 UniqueItemsAPI.ItemConfig = Isaac.GetItemConfig()
@@ -11,7 +10,8 @@ UniqueItemsAPI.ItemConfig = Isaac.GetItemConfig()
 include("uniqueitems_src.uniqueItemsAPI")
 include("uniqueitems_src.uniqueObjectLogic")
 local mcm = include("uniqueitems_src.modConfigMenu")
-UniqueItemsAPI.Version = "1.2"
+
+UniqueItemsAPI.Version = "1.3.1"
 
 function UniqueItemsAPI:OnPostGameStarted()
 	local noItems = true
@@ -41,10 +41,10 @@ local function getObjectSaveIndex(objectTypeName, objectName)
 end
 
 function UniqueItemsAPI:OnPreDataSave(saveData)
-	local arbitrarySave = saveData.file.other
-	arbitrarySave.DisableAll = UniqueItemsAPI.DisableAll
-	arbitrarySave.RandomizeAll = UniqueItemsAPI.RandomizeAll
-	arbitrarySave.AllObjectData = {}
+	local file_save = saveData.file.other
+	file_save.DisableAll = UniqueItemsAPI.DisableAll
+	file_save.RandomizeAll = UniqueItemsAPI.RandomizeAll
+	file_save.AllObjectData = {}
 
 	for tableName, tableData in pairs(UniqueItemsAPI.ObjectData) do
 		for _, objectData in pairs(tableData) do
@@ -61,13 +61,13 @@ function UniqueItemsAPI:OnPreDataSave(saveData)
 				objectSave.PlayerData[playerSaveIndex] = state
 			end
 			local objectSaveIndex = getObjectSaveIndex(tableName, objectData.Name)
-			arbitrarySave.AllObjectData[objectSaveIndex] = objectSave
+			file_save.AllObjectData[objectSaveIndex] = objectSave
 		end
 	end
 	return saveData
 end
 
-saveManager.AddCallback(saveManager.Utility.CustomCallback.PRE_DATA_SAVE, UniqueItemsAPI.OnPreDataSave)
+UniqueItemsAPI:AddCallback(saveManager.SaveCallbacks.PRE_DATA_SAVE, UniqueItemsAPI.OnPreDataSave)
 
 ---@param state string
 ---@return integer?
@@ -126,7 +126,7 @@ function UniqueItemsAPI:OnPreDataLoad(saveData)
 	end
 end
 
-saveManager.AddCallback(saveManager.Utility.CustomCallback.PRE_DATA_LOAD, UniqueItemsAPI.OnPreDataLoad)
+UniqueItemsAPI:AddCallback(saveManager.SaveCallbacks.PRE_DATA_LOAD, UniqueItemsAPI.OnPreDataLoad)
 
 local hasLoaded = false
 
@@ -135,17 +135,17 @@ function UniqueItemsAPI:OnPostDataLoad(saveData)
 	--and for those with callbacks to not be loaded more than once
 	if hasLoaded then return end
 	hasLoaded = true
-	local arbitrarySave = saveData.file.other
+	local file_save = saveData.file.other
 	Isaac.RunCallback(UniqueItemsAPI.Callbacks.LOAD_UNIQUE_ITEMS)
 
-	UniqueItemsAPI.DisableAll = arbitrarySave.DisableAll
-	UniqueItemsAPI.RandomizeAll = arbitrarySave.RandomizeAll
+	UniqueItemsAPI.DisableAll = file_save.DisableAll
+	UniqueItemsAPI.RandomizeAll = file_save.RandomizeAll
 
-	if not arbitrarySave.AllObjectData then
-		arbitrarySave.AllObjectData = {}
+	if not file_save.AllObjectData then
+		file_save.AllObjectData = {}
 	end
-	
-	for objectSaveIndex, objectSave in pairs(arbitrarySave.AllObjectData) do
+
+	for objectSaveIndex, objectSave in pairs(file_save.AllObjectData) do
 		local objectTypeName, objectName = extractObjectIndexData(objectSaveIndex)
 		if not UniqueItemsAPI.ObjectData[objectTypeName] then goto continue end
 		local objectLookup = UniqueItemsAPI.ObjectLookupTable[objectTypeName][objectName]
@@ -156,6 +156,7 @@ function UniqueItemsAPI:OnPostDataLoad(saveData)
 			if not objectState then
 				objectState = 1
 			end
+
 			objectData.SelectedModIndex = objectState
 			for playerSaveIndex, playerSaveState in pairs(objectSave.PlayerData) do
 				local name, isTainted = extractPlayerIndexData(playerSaveIndex)
@@ -171,6 +172,7 @@ function UniqueItemsAPI:OnPostDataLoad(saveData)
 
 		::continue::
 	end
+	Isaac.RunCallback(UniqueItemsAPI.Callbacks.POST_LOAD_UNIQUE_ITEMS)
 end
 
-saveManager.AddCallback(saveManager.Utility.CustomCallback.POST_DATA_LOAD, UniqueItemsAPI.OnPostDataLoad)
+UniqueItemsAPI:AddCallback(saveManager.SaveCallbacks.POST_DATA_LOAD, UniqueItemsAPI.OnPostDataLoad)

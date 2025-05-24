@@ -18,14 +18,15 @@ local nameMap = require("uniqueitems_src.nameMap")
 ---@class UniqueObjectModData
 ---@field PlayerType PlayerType
 ---@field ObjectID integer
----@field ModName string
----@field Anm2 string
 ---@field SpritePath string[]
----@field DisableByDefault boolean
+---@field ModName string
+---@field Anm2 string | nil
+---@field DisableByDefault boolean | nil
 ---@field CostumeSpritePath string | nil
 ---@field NullCostume NullItemID | nil
 ---@field SwordProjectile {Beam: string, Splash: string} | nil
----@field GlobalMod boolean
+---@field GlobalMod boolean | nil
+---@field LinkedUniqueObject {ObjectType: UniqueObjectType, ObjectID: integer} | nil
 
 ---@class UniqueObjectParams: UniqueObjectModData
 ---@field Player EntityPlayer?
@@ -61,54 +62,48 @@ UniqueItemsAPI.RegisteredCharacters = {}
 ---@field Condition function
 ---@field Callback function
 
----@type {Collectibles: ObjectLookupTable[], Familiars: ObjectLookupTable[], Knives: ObjectLookupTable[]}
+---@type {Collectibles: ObjectLookupTable[], Familiars: ObjectLookupTable[], Knives: ObjectLookupTable[], Effects: ObjectLookupTable[]}
 UniqueItemsAPI.ObjectLookupTable = {
 	Collectibles = {},
 	Familiars = {},
-	Knives = {}
+	Knives = {},
+	Effects = {}
 }
 
----@type {Collectibles: UniqueObjectData[], Familiars: UniqueObjectData[], Knives: UniqueObjectData[]}
+---@type {Collectibles: UniqueObjectData[], Familiars: UniqueObjectData[], Knives: UniqueObjectData[], Effects: UniqueObjectData[]}
 UniqueItemsAPI.ObjectData = {
 	Collectibles = {},
 	Familiars = {},
-	Knives = {}
+	Knives = {},
+	Effects = {}
 }
 
----@type {Collectibles: UniqueObjectModifier[], Familiars: UniqueObjectModifier[], Knives: UniqueObjectModifier[]}
+---@type {Collectibles: UniqueObjectModifier[], Familiars: UniqueObjectModifier[], Knives: UniqueObjectModifier[], Effects: UniqueObjectModifier[]}
 UniqueItemsAPI.ObjectModifiers = {
 	Collectibles = {},
 	Familiars = {},
-	Knives = {}
+	Knives = {},
+	Effects = {}
 }
 
 ---@enum UniqueObjectType
 UniqueItemsAPI.ObjectType = {
 	COLLECTIBLE = 1,
 	FAMILIAR = 2,
-	KNIFE = 3
+	KNIFE = 3,
+	EFFECT = 4
 }
 
 local objectTypeToTableName = {
 	[UniqueItemsAPI.ObjectType.COLLECTIBLE] = "Collectibles",
 	[UniqueItemsAPI.ObjectType.FAMILIAR] = "Familiars",
 	[UniqueItemsAPI.ObjectType.KNIFE] = "Knives",
+	[UniqueItemsAPI.ObjectType.EFFECT] = "Effects",
 }
 
 UniqueItemsAPI.Callbacks = {
-	LOAD_UNIQUE_ITEMS = "__UNIQUE_ITEMS_API_LOAD_UNIQUE_ITEMS"
-}
-
-UniqueItemsAPI.ObjectData = {
-	Collectibles = {},
-	Familiars = {},
-	Knives = {}
-}
-
-UniqueItemsAPI.ObjectModifiers = {
-	Collectibles = {},
-	Familiars = {},
-	Knives = {}
+	LOAD_UNIQUE_ITEMS = "__UNIQUE_ITEMS_API_LOAD_UNIQUE_ITEMS",
+	POST_LOAD_UNIQUE_ITEMS = "__UNIQUE_ITEMS_API_POST_LOAD_UNIQUE_ITEMS"
 }
 
 UniqueItemsAPI.RegisteredMods = {}
@@ -194,38 +189,42 @@ local function callError(err, extraLayer)
 end
 
 function UniqueItemsAPI.GetFirstAlivePlayer()
-	for index = 0, UniqueItemsAPI.Game:GetNumPlayers() - 1 do
-		local player = Isaac.GetPlayer(index)
-		if not player:IsCoopGhost() then return player end
-	end
-end
-
----@param ent Entity
-function UniqueItemsAPI.TryGetPlayer(ent)
-	if ent:ToPlayer() then return ent:ToPlayer() end
-	local spawnEnt = ent.SpawnerEntity
-	if ent.Type == EntityType.ENTITY_PICKUP then
-		for index = 0, UniqueItemsAPI.Game:GetNumPlayers() - 1 do
-			local player = Isaac.GetPlayer(index)
-			if not player:IsDead()
-				and not player:IsCoopGhost()
-			then
-				return player
-			end
+	for _, ent in ipairs(Isaac.FindByType(EntityType.ENTITY_PLAYER)) do
+		if type(ent) ~= "number" then
+			local player = ent:ToPlayer() ---@cast player EntityPlayer
+			if not player:IsCoopGhost() and not player:IsDead() then return player end
 		end
 	end
-	if not spawnEnt then return end
+end
 
-	if spawnEnt:ToPlayer() then
-		return spawnEnt:ToPlayer()
-	elseif spawnEnt:ToFamiliar() and spawnEnt:ToFamiliar().Player then
-		return spawnEnt:ToFamiliar().Player
-	else
-		UniqueItemsAPI.TryGetPlayer(ent.SpawnerEntity)
+---@param ent Entity | EntityRef | EntityPtr
+function UniqueItemsAPI.TryGetPlayer(ent)
+	if not ent then return end
+
+	if ent.Type == EntityType.ENTITY_PICKUP then
+		return UniqueItemsAPI.GetFirstAlivePlayer()
+	end
+
+	if string.find(getmetatable(ent).__type, "EntityPtr") then
+		if ent.Ref then
+			return UniqueItemsAPI.TryGetPlayer(ent.Ref)
+		end
+	elseif string.find(getmetatable(ent).__type, "EntityRef") then
+		if ent.Entity then
+			return UniqueItemsAPI.TryGetPlayer(ent.Entity)
+		end
+	elseif ent:ToPlayer() then
+		return ent:ToPlayer()
+	elseif ent:ToFamiliar() and ent:ToFamiliar().Player then
+		return ent:ToFamiliar().Player
+	elseif ent.SpawnerEntity then
+		return UniqueItemsAPI.TryGetPlayer(ent.SpawnerEntity)
+	elseif ent.Parent then
+		return UniqueItemsAPI.TryGetPlayer(ent.Parent)
 	end
 end
 
----@return "Collectibles" | "Familiars" | "Knives"
+---@return "Collectibles" | "Familiars" | "Knives" | "Effects"
 local function getUniqueObjectName(objectType)
 	return objectTypeToTableName[objectType]
 end
@@ -355,22 +354,48 @@ end
 
 ---@param funcName string
 ---@param params UniqueObjectModData
----@param dataType UniqueObjectType
-local function shouldDataBeAdded(funcName, params, dataType)
-	if params.GlobalMod then
-		--Is good :)
-	elseif params.PlayerType == nil
-		or type(params.PlayerType) ~= "number"
-	then
-		callArgumentError(funcName, params.PlayerType, "PlayerType", "number", true)
-		return
-	elseif params.PlayerType == -1 then
-		return
-	end
-
+---@param objectType UniqueObjectType
+local function shouldDataBeAdded(funcName, params, objectType)
 	if lastRegisteredMod == "" then
 		local err = "Error in " .. funcName .. ", no mods registered to add to!"
 		callError(err, true)
+	end
+	if params.LinkedUniqueObject then
+		local otherType = params.LinkedUniqueObject.ObjectType
+		local otherID = params.LinkedUniqueObject.ObjectID
+		local tableName = getUniqueObjectName(otherType)
+		local objectData = UniqueItemsAPI.ObjectData[tableName][otherID]
+		if not objectData then
+			callError("Error in " .. funcName .. ": Expected linked type " .. string.sub(tableName, 1, -2) .. "with ID " .. otherID ..". Object returned nil.")
+			return
+		end
+		local modAvailable = false
+		local playerData = objectData.AllPlayers[params.PlayerType]
+		if not playerData then
+			callError("Error in " .. funcName .. ": Expected linked type " .. string.sub(tableName, 1, -2) .. "with ID " .. otherID .." for PlayerType " .. params.PlayerType .. ". Object returned nil.")
+			return
+		end
+		for _, modData in pairs(playerData.ModData) do
+			if modData.ModName == lastRegisteredMod then
+				modAvailable = true
+				break
+			end
+		end
+
+		if not modAvailable then
+			callError("Error in " .. funcName .. ": Expected linked type " .. string.sub(tableName, 1, -2) .. "with ID " .. otherID .." for PlayerType " .. params.PlayerType .. " under mod name \"" .. lastRegisteredMod .. "\". Object returned nil.")
+			return
+		end
+	end
+	if not params.GlobalMod and (
+			params.PlayerType == nil
+			or type(params.PlayerType) ~= "number"
+		)
+	then
+		callArgumentError(funcName, params.PlayerType, "PlayerType", "number", true)
+		return
+	elseif params.PlayerType and params.PlayerType == -1 then
+		return
 	end
 
 	if params.ObjectID == nil
@@ -384,18 +409,18 @@ local function shouldDataBeAdded(funcName, params, dataType)
 		callArgumentError(funcName, params.Anm2, "Anm2", "string", true)
 	end
 
-	if dataType == nil
-		or type(dataType) ~= "number"
+	if objectType == nil
+		or type(objectType) ~= "number"
 	then
-		callArgumentError(funcName, dataType, "SpritePath", "table", true)
+		callArgumentError(funcName, objectType, "SpritePath", "table", true)
 	end
 
-	if (dataType < 1 or dataType > 3) then
-		callError("Bad Argument \"dataType\" in " ..
+	if (objectType < 1 or objectType > 4) then
+		callError("Bad Argument \"objectType\" in " ..
 		funcName .. " (ItemType is out of bounds. Must be between range of 1 to 3).")
 	end
 
-	if dataType == UniqueItemsAPI.ObjectType.COLLECTIBLE then
+	if objectType == UniqueItemsAPI.ObjectType.COLLECTIBLE then
 		if params.CostumeSpritePath ~= nil then
 			if type(params.CostumeSpritePath) ~= "string" then
 				callArgumentError(funcName, params.CostumeSpritePath, "CostumeSpritePath", "string", true)
@@ -410,7 +435,7 @@ local function shouldDataBeAdded(funcName, params, dataType)
 				callError(err, true)
 			end
 		end
-	elseif dataType == UniqueItemsAPI.ObjectType.KNIFE then
+	elseif objectType == UniqueItemsAPI.ObjectType.KNIFE then
 		if params.SwordProjectile ~= nil then
 			if type(params.SwordProjectile) ~= "table" then
 				callArgumentError(funcName, params.SwordProjectile, "KnifeSprite", "table")
@@ -442,15 +467,19 @@ end
 function UniqueItemsAPI.AssignUniqueObject(params, objectType)
 	local funcName = "AssignUniqueObject"
 	if not shouldDataBeAdded(funcName, params, objectType) then return end
-
 	local uniqueItemTable = getUniqueObjectName(objectType)
+
 	if not UniqueItemsAPI.ObjectData[uniqueItemTable][params.ObjectID] then
 		local objectData = {}
 		objectData.SelectedModIndex = 1
 		objectData.SelectedPlayerIndex = 1
 		objectData.AllMods = {}
 		objectData.AllPlayers = {}
-		objectData.Name = nameMap[uniqueItemTable][params.ObjectID] or params.ObjectID
+
+		objectData.Name = nameMap[uniqueItemTable] and nameMap[uniqueItemTable][params.ObjectID]
+			or (objectType == UniqueItemsAPI.ObjectType.COLLECTIBLE and UniqueItemsAPI.ItemConfig:GetCollectible(params.ObjectID).Name)
+			or params.ObjectID
+
 		objectData.DisplayName = tonumber(objectData.Name) and
 			string.gsub(uniqueItemTable, 1, -2) .. " ID " .. objectData.Name or objectData.Name
 		UniqueItemsAPI.ObjectData[uniqueItemTable][params.ObjectID] = objectData
@@ -458,7 +487,7 @@ function UniqueItemsAPI.AssignUniqueObject(params, objectType)
 			ObjectData = objectData
 		}
 	end
-	
+
 	if not params.PlayerType and params.GlobalMod then
 		for playerType, _ in pairs(UniqueItemsAPI.RegisteredCharacters) do
 			params.PlayerType = playerType
@@ -466,12 +495,12 @@ function UniqueItemsAPI.AssignUniqueObject(params, objectType)
 		end
 		return
 	end
-	
+
 	---@type UniqueObjectData
 	local objectData = UniqueItemsAPI.ObjectData[uniqueItemTable][params.ObjectID]
 	local shouldAdd = true
 	for _, modName in pairs(objectData.AllMods) do
-		if modName == lastRegisteredMod then
+		if modName == lastRegisteredMod or params.LinkedUniqueObject then
 			shouldAdd = false
 			break
 		end
@@ -498,7 +527,7 @@ function UniqueItemsAPI.AssignUniqueObject(params, objectType)
 	end
 	local playerData = UniqueItemsAPI.GetObjectData(params.ObjectID, objectType, params.PlayerType)
 	---@cast playerData UniqueObjectPlayerData
-	
+
 	local modData = {
 		ModName = lastRegisteredMod
 	}
@@ -592,6 +621,19 @@ function UniqueItemsAPI.GetObjectParams(objectID, playerOrPlayerType, objectType
 	local params = {}
 	local modData = playerData.ModData[playerData.SelectedModIndex]
 
+	for index, searchModData in pairs(playerData.ModData) do
+		if searchModData.LinkedUniqueObject then
+			local otherType = searchModData.LinkedUniqueObject.ObjectType
+			local otherID = searchModData.LinkedUniqueObject.ObjectID
+			if UniqueItemsAPI.GetCurrentObjectMod(otherID, playerType, otherType).ModName ~= searchModData.ModName then
+				return
+			else
+				modData = playerData.ModData[index]
+				break
+			end
+		end
+	end
+
 	if UniqueItemsAPI.IsObjectRandomized(playerData) and player then
 		modData = playerData.ModData[player:GetData().UniqueItemsRandomIndex]
 	end
@@ -641,7 +683,7 @@ end
 
 ---@param playerData UniqueObjectPlayerData
 function UniqueItemsAPI.IsObjectRandomized(playerData)
-	return playerData.SelectedModIndex == -1 or UniqueItemsAPI.RandomizeAll
+	return (playerData.SelectedModIndex == -1 or UniqueItemsAPI.RandomizeAll) and #playerData.ModData > 1
 end
 
 --#endregion
@@ -810,7 +852,7 @@ end
 ---@param noModifier? boolean
 ---@return UniqueObjectParams | nil
 function UniqueItemsAPI.GetFamiliarParams(familiarVariant, familiar, noModifier)
-	local params = UniqueItemsAPI.GetObjectParams(familiarVariant, familiar, 
+	local params = UniqueItemsAPI.GetObjectParams(familiarVariant, familiar,
 	UniqueItemsAPI.ObjectType.FAMILIAR, noModifier)
 	---@cast params OldObjectParams
 	if params then
