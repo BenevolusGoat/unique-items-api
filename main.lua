@@ -1,5 +1,3 @@
---VERSION 1.3
-
 ---@class ModReference
 UniqueItemsAPI = RegisterMod("Unique Items API", 1)
 UniqueItemsAPI.SaveManager = include("uniqueitems_src.save_manager")
@@ -12,7 +10,8 @@ UniqueItemsAPI.ItemConfig = Isaac.GetItemConfig()
 include("uniqueitems_src.uniqueItemsAPI")
 include("uniqueitems_src.uniqueObjectLogic")
 local mcm = include("uniqueitems_src.modConfigMenu")
-UniqueItemsAPI.Version = "1.3"
+
+UniqueItemsAPI.Version = "1.3.1"
 
 function UniqueItemsAPI:OnPostGameStarted()
 	local noItems = true
@@ -145,7 +144,7 @@ function UniqueItemsAPI:OnPostDataLoad(saveData)
 	if not file_save.AllObjectData then
 		file_save.AllObjectData = {}
 	end
-	
+
 	for objectSaveIndex, objectSave in pairs(file_save.AllObjectData) do
 		local objectTypeName, objectName = extractObjectIndexData(objectSaveIndex)
 		if not UniqueItemsAPI.ObjectData[objectTypeName] then goto continue end
